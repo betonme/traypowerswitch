@@ -12,9 +12,9 @@
 ;
 ; Copyright Frank Glaser 2009
 ;
-; Version:           1.06
+; Version:           1.07
 ; Last author:       Frank Glaser
-; Last changed date: 17.06.2009
+; Last changed date: 20.11.2009
 ; 
 ; AutoIt Version:    3.3.0.0
 ; SciTE4AutoIt3:     21.05.2009
@@ -31,8 +31,8 @@
 
 ; Program Version Information
 Dim Const $program_name = "TrayPowerSwitch"
-Dim Const $version_num  = "1.06"
-Dim Const $version_date = "2009-06-17"
+Dim Const $version_num  = "1.07"
+Dim Const $version_date = "2009-11-20"
 Dim Const $copyright    = "(c) 2009 Frank Glaser"
 
 ; There are default 4 icons in EXE so your first icon must have (negative 1-based) index -5:
@@ -216,7 +216,7 @@ EndFunc
 
 
 Func setIcon ()
-	Local $pid, $line
+	Local $pid, $line, $response
 	Local   $err = False
 
 	$state = False
@@ -236,13 +236,15 @@ Func setIcon ()
 		If StringInStr ( $line, StringFormat ("Der Befehl ""%s"" ist entweder falsch geschrieben oder\r\nkonnte nicht gefunden werden", $exec) ) <> 0 Then $err = True
 		If StringInStr ( $line, $err_str ) <> 0 Then $err = True
 
-		; Check Status
-		If StringInStr ( $line, $state_str_on ) <> 0 Then
-			$state = True
-		ElseIf StringInStr ( $line, $state_str_off ) <> 0 Then
-			$state = False
-		EndIf
+        $response = $response & $line
 	Wend
+
+	; Check Status
+	If StringInStr ( $response, $state_str_on ) <> 0 Then
+		$state = True
+	ElseIf StringInStr ( $response, $state_str_off ) <> 0 Then
+		$state = False
+	EndIf
 
 	; Status Handling
 	If $state = True Then
