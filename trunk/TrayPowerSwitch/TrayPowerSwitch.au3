@@ -1,321 +1,345 @@
 #Region ;**** Directives created by AutoIt3Wrapper_GUI ****
+#AutoIt3Wrapper_icon=TrayPowerSwitch.ico
 #AutoIt3Wrapper_outfile=bin\TrayPowerSwitch.exe
+#AutoIt3Wrapper_Res_Icon_Add=button_on.ico
+#AutoIt3Wrapper_Res_Icon_Add=button_off.ico
+#AutoIt3Wrapper_Res_Icon_Add=button_reload.ico
+#AutoIt3Wrapper_Res_Icon_Add=button_error.ico
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 
 ; ----------------------------------------------------------------------------
 ;
 ; Copyright Frank Glaser 2009
 ;
-; Version:           1.01
+; Version:           1.02
 ; Last author:       Frank Glaser
-; Last changed date: 27.05.2009
-;
+; Last changed date: 01.06.2009
+; 
 ; AutoIt Version:    3.3.0.0
 ; SciTE4AutoIt3:     21.05.2009
-;
+; 
 ; Script Function:
 ;   Control Your Power Outlets from Windows Tray.
 ;
 ; ----------------------------------------------------------------------------
 
 
+#include <Array.au3>
 #Include <Constants.au3>
+#include <Timers.au3>
 
 Dim Const $program_name = "TrayPowerSwitch"
-Dim Const $version_num  = "1.01"
-Dim Const $version_date = "2009-06-27"
+Dim Const $version_num  = "1.02"
+Dim Const $version_date = "2009-06-01"
 Dim Const $copyright    = "(c) 2009 Frank Glaser"
 
-$infratec_type = 1
-    ; 0 = 2 Outlets, Master/Slave
-    ; 1 = 4 Outlets (PM 4 IP)
+# There are default 4 icons in EXE so your first icon must have (negative 1-based) index -5:
+Dim Const $ico_on  = -5
+Dim Const $ico_off = -6
+Dim Const $ico_rel = -7
+Dim Const $ico_err = -8
 
-If $infratec_type = 0 Then
 
-    $timeout 			= 1
-    $default_address 	= "powerline-01" 	; Default ip or dns address
-    $default_outlet 	= 1					; Default Infratec Outlet - Values [1,2]
-    $default_user 		= "admin"			; Default user
-    $default_password 	= "admin"			; Default password
+Dim Const $def_profile 		= 0  				; Default profile
+Dim Const $max_prof	    	= 2  				; Max Number profiles
 
-ElseIf $infratec_type = 1 Then
+											  ; Profile 0 Cleware,	Profile 1 Infratec
+Dim Const $def_exec[$max_prof] 			= ["USBswitchCmd.exe", 	"httpget.exe"] 		; Default executable
+Dim Const $def_address[$max_prof]		= ["",					"powerline-01"] 	; Default ip or dns address
+Dim Const $def_outlet[$max_prof]		= ["",					1]					; Default Outlet - Values
+Dim Const $def_user[$max_prof] 			= ["",					"admin"]			; Default user
+Dim Const $def_password[$max_prof] 		= ["",					"admin"]			; Default password
+Dim Const $def_state[$max_prof] 		= [False,				False]				; Default state
+Dim Const $def_err_str[$max_prof] 		= ["not found",			"error"]			; Default state response string for error
+Dim Const $def_timeout[$max_prof] 		= [0,					1]					; Default time in sec before timeout
+Dim Const $def_update_time[$max_prof] 	= [400,					100]				; Default time in msec before device updates status
+Dim Const $def_toggle[$max_prof] 		= [False,				False]				; Default toggle state
+Dim Const $def_toggle_time[$max_prof] 	= [1000,				1000]				; Default time in msec to toggle status
+Dim Const $def_autupd[$max_prof] 		= [False,				False]				; Default auto update state
+Dim Const $def_autupd_time[$max_prof] 	= [1000,				1000]				; Default time in msec to auto update status
 
-    $timeout 			= 4
-    $default_address 	= "ipswitch" 	; Default ip or dns address
-    $default_outlet 	= 3					; Default Infratec Outlet - Values [1,2[3,4]]
-    $default_user 		= "admin"			; Default user
-    $default_password 	= "admin"			; Default password
-EndIf
+Dim Const $def_state_str[$max_prof] 	= ["1",					": 1"]				; Default state response string for true
+Dim Const $def_get_state[$max_prof] 	= [StringFormat ("%s -r", $def_exec[0]), _
+											StringFormat ("%s -C%d -t%d ""http://%s/sw?s=0""", $def_exec[1], $def_timeout[1], $def_timeout[1], $def_address[1])]
+Dim Const $def_set_state[$max_prof] 	= [StringFormat ("%s ", $def_exec[0]), _
+											StringFormat ("%s -C%d -t%d ""http://%s/sw?u=%s&p=%s&o=%d&f=""", $def_exec[1], $def_timeout[1], $def_timeout[1], $def_address[1], $def_user[1], $def_password[1], $def_outlet[1])]
+;"off" = switch off "on" = switch on
 
-$address 	= $default_address
-$outlet 	= $default_outlet
-$user 		= $default_user
-$password 	= $default_password
 
-If $infratec_type = 0 Then
-    $numOutlets = 2
+$profile	  = $def_profile
+$exec	      = $def_exec[$profile]
+$address 	  = $def_address[$profile]
+$outlet 	  = $def_outlet[$profile]
+$user 		  = $def_user[$profile]
+$password 	  = $def_password[$profile]
+$state 		  = $def_state[$profile]
+$err_str	  = $def_err_str[$profile]
+$timeout 	  = $def_timeout[$profile]
+$updatetime	  = $def_update_time[$profile]
+$autotoggle   = $def_toggle[$profile]
+$toggletime	  = $def_toggle_time[$profile]
+$autoupdate   = $def_autupd[$profile]
+$autupd_time  = $def_autupd_time[$profile]
+$state_str	  = $def_state_str[$profile]
+$get_state 	  = $def_get_state[$profile]
+$set_state 	  = $def_set_state[$profile]
+
+$timerbegin = 0
+$timerdiff  = 0
+
+# Parse Commandline Parameter
+If $CmdLine[0] > 0 Then
+	$CmdParam = $CmdLine
+	_ArrayDelete($CmdParam, 0)
+	FOR $element IN $CmdParam
+		$el = StringLeft ($element,2)
+		Select
+			Case $el = "-l"
+				$profile = StringTrimLeft($element,3)
+				If $profile < 0 Then $profile = 0
+				If $profile >= $max_prof Then $profile = $max_prof-1
+				$profile	= $def_profile
+				$profile	  = $def_profile
+				$exec	      = $def_exec[$profile]
+				$address 	  = $def_address[$profile]
+				$outlet 	  = $def_outlet[$profile]
+				$user 		  = $def_user[$profile]
+				$password 	  = $def_password[$profile]
+				$state 		  = $def_state[$profile]
+				$err_str	  = $def_err_str[$profile]
+				$timeout 	  = $def_timeout[$profile]
+				$updatetime	  = $def_update_time[$profile]
+				$autotoggle   = $def_toggle[$profile]
+				$toggletime	  = $def_toggle_time[$profile]
+				$autoupdate   = $def_autupd[$profile]
+				$autupd_time  = $def_autupd_time[$profile]
+				$state_str	  = $def_state_str[$profile]
+				$get_state 	  = $def_get_state[$profile]
+				$set_state 	  = $def_set_state[$profile]
+				ExitLoop
+			Case $el = "-e"
+				$exec = StringTrimLeft($element,3)
+			Case $el = "-a"
+				$address = StringTrimLeft($element,3)
+			Case $el = "-o"
+				$outlet = StringTrimLeft($element,3)
+			Case $el = "-u"
+				$user = StringTrimLeft($element,3)
+			Case $el = "-p"
+				$password = StringTrimLeft($element,3)
+			Case $el = "-s"
+				$state = StringTrimLeft($element,3)
+			Case $el = "-?"
+				MsgBox(0, 'Help', "Parameter: " & @LF _
+								& "-l=" & @TAB & "load profile 0=Infratec 1=Cleware (no further parameters are accepted)" & @LF _
+								& "-e=" & @TAB & "executable" & @LF _
+								& "-a=" & @TAB & "address" & @LF _
+								& "-o=" & @TAB & "outlet" & @LF _
+								& "-u=" & @TAB & "user" & @LF _
+								& "-p=" & @TAB & "password" & @LF _
+								& "-s=" & @TAB & "state")
+								#q= quiet
+								#x= close after setting state
+				Exit
+			Case Else
+				MsgBox(0, '', StringFormat ("Unknown Parameter: %s", $element) & @LF _
+								& "-? for help")
+				Exit
+		EndSelect
+	NEXT
 Else
-    $numOutlets = 4
+	# No Commandline Parameter
+	#Exit
 EndIf
 
-; Note: Index 0 of any arrays defined are not used
-Dim $outlet_name[5]
-if $infratec_type = 0 Then
-    $outlet_name[1] = "Infratec 1"
-    $outlet_name[2] = "Infratec 2"
-    $outlet_name[3] = "-"
-    $outlet_name[4] = "-"
-Else
-    $outlet_name[1] = "ETMC"
-    $outlet_name[2] = "Switch"
-    $outlet_name[3] = "MMC"
-    $outlet_name[4] = "HIOB"
-EndIf
-
-Dim $infratec_state[5]
-$infratec_state[1] = False	; State of Infratec Outlet 1
-$infratec_state[2] = False	; State of Infratec Outlet 2
-$infratec_state[3] = False	; State of Infratec Outlet 3
-$infratec_state[4] = False	; State of Infratec Outlet 4
-
-Dim $stateString[5]
-If $infratec_type = 0 Then
-    $stateString[1] = "Out 1"
-    $stateString[2] = "Out 2"
-    $stateString[3] = "Out 3"
-    $stateString[4] = "Out 4"
-Else
-    $stateString[1] = $outlet_name[1]   ; PM 4 IP reports names
-    $stateString[2] = $outlet_name[2]
-    $stateString[3] = $outlet_name[3]
-    $stateString[4] = $outlet_name[4]
-EndIf
-
-# Commandline Parameter
-# address
-If $CmdLine[0] > 0 Then $address = $CmdLine[1]
-# outlet
-If $CmdLine[0] > 1 Then $outlet = $CmdLine[2]
-# user
-If $CmdLine[0] > 2 Then $user = $CmdLine[3]
-# password
-If $CmdLine[0] > 3 Then $password = $CmdLine[4]
 
 # Add Tray Items
+TraySetIcon(@ScriptFullPath, $ico_rel)
+
 Opt("TrayMenuMode",1)   ; Default tray menu items (Script Paused/Exit) will not be shown.
 
-Dim $chkitem[5]
-If $infratec_type <> 1 Then
-    $chkitem[1]      = TrayCreateItem("Infratec 1")
-    $chkitem[2]      = TrayCreateItem("Infratec 2")
-    $chkitem[3]      = 0
-    $chkitem[4]      = 0
-Else
-    $chkitem[1]  = TrayCreateItem($outlet_name[1])
-    $chkitem[2]  = TrayCreateItem($outlet_name[2])
-    $chkitem[3]  = TrayCreateItem($outlet_name[3])
-    $chkitem[4]  = TrayCreateItem($outlet_name[4])
-EndIf
+$autotoggleItem    = TrayCreateItem("Toggle")
 TrayCreateItem("")
-$fixStatusItem   = TrayCreateItem("Fix Status (reread)")
-$showStatusItem  = TrayCreateItem("Show status response string")
-$aboutItem       = TrayCreateItem("About")
+$fixStatusItem     = TrayCreateItem("Update")
+$autoStatusItem    = TrayCreateItem("Auto-Update")
+$showStatusItem    = TrayCreateItem("Show Response")
 TrayCreateItem("")
-$exititem        = TrayCreateItem("Exit")
-
-TrayItemSetState($chkitem[1],$TRAY_UNCHECKED)
-TrayItemSetState($chkitem[2],$TRAY_UNCHECKED)
-If $infratec_type = 1 Then
-    TrayItemSetState($chkitem[3],$TRAY_UNCHECKED)
-    TrayItemSetState($chkitem[4],$TRAY_UNCHECKED)
-EndIf
-
-TrayItemSetState($chkitem[$outlet], $TRAY_CHECKED)
+$aboutItem         = TrayCreateItem("About")
+TrayCreateItem("")
+$exititem          = TrayCreateItem("Exit")
 
 TraySetState()		; Sets the state of the tray icon.
 
 TraySetClick(8) 	; Sets the clickmode of the tray icon - what mouseclicks will display the tray menu.
-                    ; Pressing secondary mouse button.
+					; Pressing secondary mouse button.
 
-; Adjust TrayMenuMode to not automatically uncheck menu items
-; when clicked
-AutoItSetOption("TrayMenuMode", 1 + 2 + 8)
-
-# Get Infratec Status
+# Get Outlet Status
 setIcon()
 
+# Event Handling Loop
 While 1
-    $lastOutlet = $outlet
     $trayevent = TrayGetMsg()
+
+	# auto update state handling
+	# has to be done before event handling else it will not update icon if app is out of focus
+	If $autoupdate = True Then
+		$timerdiff = TimerDiff($timerbegin)
+		if ($timerdiff > $autupd_time) Then
+			setIcon()
+			$timerbegin = TimerInit()
+		EndIf
+	EndIf
 
     Select
         Case $trayevent = 0
             ContinueLoop
-        Case $trayevent = $chkitem[1]
-            $outlet = 1
-        Case $trayevent = $chkitem[2]
-            $outlet = 2
-        Case $trayevent = $chkitem[3]
-            $outlet = 3
-        Case $trayevent = $chkitem[4]
-            $outlet = 4
 
-        Case $trayevent = $fixStatusItem
+		Case $trayevent = $autotoggleItem
+			$autotoggle = Not $autotoggle
+			If $autotoggle = True Then
+				TrayItemSetState($autotoggleItem, $TRAY_CHECKED)
+				setIcon()
+				$timerbegin = TimerInit()
+			Else
+				TrayItemSetState($autotoggleItem, $TRAY_UNCHECKED)
+				setIcon()
+			EndIf
+
+		Case $trayevent = $fixStatusItem
             setIcon()
-        Case $trayevent = $showStatusItem
+        Case $trayevent = $autoStatusItem
+			$autoupdate = Not $autoupdate
+			If $autoupdate = True Then
+				TrayItemSetState($autoStatusItem, $TRAY_CHECKED)
+				setIcon()
+			Else
+				TrayItemSetState($autoStatusItem, $TRAY_UNCHECKED)
+				setIcon()
+			EndIf
+		Case $trayevent = $showStatusItem
             showStatusString()
+
         Case $trayevent = $aboutItem
             showVersion()
 
-        Case $trayevent = $TRAY_EVENT_PRIMARYDOWN
-            switchInfratec()
-
         Case $trayevent = $exititem
             ExitLoop
-    EndSelect
 
-    if $outlet <> $lastOutlet Then
-        changeSelection($outlet)
-    EndIf
+		Case $trayevent = $TRAY_EVENT_PRIMARYDOWN
+			If $autotoggle = True Then
+				switchOutlet(False)
+				Sleep($toggletime)
+				switchOutlet(True)
+			Else
+				switchOutlet(Not $state)
+			EndIf
+	EndSelect
+
 WEnd
 
 Exit
 
-Func changeSelection($thisOutlet)
-    For $ii = 1 To 4
-        if $thisOutlet = $ii Then
-            TrayItemSetState($chkitem[$ii],$TRAY_CHECKED)
-        Else
-            TrayItemSetState($chkitem[$ii],$TRAY_UNCHECKED)
-        EndIf
-        setIcon()
-    Next
+
+
+Func switchOutlet($nextstate)
+
+	TraySetIcon(@ScriptFullPath, $ico_rel)
+
+	$state = $nextstate
+
+	$pid = Run(@ComSpec & " /c " & $set_state & StringFormat("%d",$state), "", @SW_HIDE, $STDERR_MERGED)
+	ProcessWaitClose ($pid)
+
+	While 1
+		$line = StdoutRead($pid)
+
+		# Check Errors
+		If @error Then ExitLoop
+
+		# Check StdOut
+		If StringInStr ( $line, StringFormat ("Der Befehl ""%s"" ist entweder falsch geschrieben oder\r\nkonnte nicht gefunden werden", $exec) ) <> 0 Then $err = True
+		If StringInStr ( $line, $err_str ) <> 0 Then
+			TraySetIcon(@ScriptFullPath, $ico_err)
+			TraySetToolTip("No Response")
+			Return
+		EndIf
+	Wend
+
+	# Sleep to get the correct state
+	Sleep($updatetime)
+
+	# Update Tray Icon
+	setIcon()
 EndFunc
 
-Func switchOutlet($thisOutlet, $thisState)
+Func setIcon()
+    Local   $err = False
+	$state = False
 
-    if $thisState = True Then
-        $pid = Run(@ComSpec & " /c " & StringFormat ("httpget -C%d -t%d ""http://%s/sw?u=%s&p=%s&o=%d&f=off""", _
-            $timeout, $timeout, $address, $user, $password, $thisOutlet), "", @SW_HIDE, $STDERR_MERGED)
-    Else
-        $pid = Run(@ComSpec & " /c " & StringFormat ("httpget -C%d -t%d ""http://%s/sw?u=%s&p=%s&o=%d&f=on""",  _
-            $timeout, $timeout, $address, $user, $password, $thisOutlet), "", @SW_HIDE, $STDERR_MERGED)
-    EndIf
-    if $pid = 0 Then
-        MsgBox(4096, "switchOutlet: httpget Error", StringFormat("httpget returned error %d !", @error), 10)
-        Return
-    EndIf
+	# Get Outlet Status
+	$pid = Run(@ComSpec & " /c " & $get_state, "", @SW_HIDE, $STDERR_MERGED)
+	ProcessWaitClose ($pid)
 
-    While 1
-        $line = StdoutRead($pid)
+	While 1
+		# read from StdOut
+		$line = StdoutRead($pid)
 
-        # Check Errors
-        If @error Then
-#            MsgBox(4096, "switchOutlet Error", StringFormat("switchOutlet StdoutRead Error %d !", @error))
-            ExitLoop
-        EndIf
+		# Check Errors
+		If @error Then ExitLoop
 
-        validateLine($line, $thisOutlet)
-    Wend
+		# Check StdOut
+		If StringInStr ( $line, StringFormat ("Der Befehl ""%s"" ist entweder falsch geschrieben oder\r\nkonnte nicht gefunden werden", $exec) ) <> 0 Then $err = True
+		If StringInStr ( $line, $err_str ) <> 0 Then $err = True
 
-EndFunc
+		# Check Status
+		If StringInStr ( $line, $state_str ) <> 0 Then
+			$state = True
+		EndIf
+	Wend
 
-Func switchInfratec()
-    switchOutlet($outlet, $infratec_state[$outlet])
-EndFunc
+	# Status Handling
+	If $state = True Then
+		TraySetToolTip(StringFormat ("Outlet %d ON", $outlet))
+		TraySetIcon(@ScriptFullPath, $ico_on)
+	Else
+		TraySetToolTip(StringFormat ("Outlet %d OFF", $outlet))
+		TraySetIcon(@ScriptFullPath, $ico_off)
+	EndIf
 
-Func validateLine($line, $thisOutlet)
-    # Check TimeOut
-    If StringInStr ( $line, "error" ) <> 0 Then
-        TraySetIcon("warning",1)
-        MsgBox(0, "Infratec Error", "Error reported: " & $line)
-        Exit
-    EndIf
-
-    # Check StdOut
-    If $line <> "" Then
-        $infratec_state[$thisOutlet] = not $infratec_state[$thisOutlet]
-        setIcon()
-    EndIf
+	# $error Handling
+	If $err = True Then
+		TraySetIcon(@ScriptFullPath, $ico_err)
+		TraySetToolTip("No Response")
+		Return
+	Endif
 EndFunc
 
 Func showStatusString ()
     Local $pid, $line, $response = ""
 
     # Get Infratec Status
-    $pid = Run(@ComSpec & " /c " & StringFormat ("httpget -C%d -t%d ""http://%s/sw?s=0""", $timeout, $timeout, $address), "", @SW_HIDE, $STDERR_MERGED)
+	$pid = Run(@ComSpec & " /c " & $get_state, "", @SW_HIDE, $STDERR_MERGED)
+	ProcessWaitClose ($pid)
+
     if $pid = 0 Then
-        MsgBox(4096, "showStatus: httpget Error", StringFormat("httpget returned error %d !", @error), 10)
+        MsgBox(4096, "Error report", StringFormat("%d", @error), 10)
         Return
     EndIf
+
     While 1
         $line = StdoutRead($pid)
-        If @error Then
-            # MsgBox(4096, "setIcon: Error", StringFormat("StdoutRead Error %d !", @error))
-            # TraySetIcon("warning",1)
-            ExitLoop
-        EndIf
+
+        If @error Then ExitLoop
         $response = $response & $line
     WEnd
-    MsgBox(4096, "showStatus: Status string", "Infratec reports: " & $response)
+
+	setIcon()
+	MsgBox(4096, "Status report", $response)
 
 EndFunc
 
 Func showVersion ()
     Local   $text
-
     $text = StringFormat($program_name & "V" & $version_num & "\nBuilt " & $version_date & "\n" & $copyright)
     MsgBox(4096, $program_name & " V" & $version_num, $text)
-EndFunc
-
-Func setIcon()
-    Local   $toolTip
-    Local   $ii
-
-    # Get Infratec Status
-    $pid = Run(@ComSpec & " /c " & StringFormat ("httpget -C%d -t%d ""http://%s/sw?s=0""", $timeout, $timeout, $address), "", @SW_HIDE, $STDERR_MERGED)
-    if $pid = 0 Then
-        MsgBox(4096, "setIcon: httpget Error", StringFormat("httpget returned error %d !", @error), 10)
-        Return
-    EndIf
-
-    While 1
-        $line = StdoutRead($pid)
-#        MsgBox(4096, "httget output", $line)
-
-        # Check Errors
-        If @error Then
-            # MsgBox(4096, "setIcon: Error", StringFormat("StdoutRead Error %d !", @error))
-            # TraySetIcon("warning",1)
-            ExitLoop
-        EndIf
-
-        # Check TimeOut
-        If StringInStr ( $line, "error" ) <> 0 Then
-            TraySetIcon("warning",1)
-            MsgBox(0, "setIcon: Error", "Infratec error indicated: " & $line, 30)
-            Exit
-        EndIf
-
-        # Check StdOut
-        If $line <> "" Then
-            For $ii = 1 to $numOutlets
-                If StringInStr ( $line, $stateString[$ii] & ": 1" ) <> 0 Then
-                    $infratec_state[$ii] = True
-                Else
-                    $infratec_state[$ii] = False
-                EndIf
-            Next
-
-            If $infratec_state[$outlet] = True Then
-                $toolTip = $outlet_name[$outlet] & " ON"
-                TraySetIcon("button_on.ico",1)
-            Else
-                $toolTip = $outlet_name[$outlet] & " OFF"
-                TraySetIcon("button_off.ico",1)
-            EndIf
-            TraySetToolTip($toolTip)
-
-        EndIf
-    Wend
 EndFunc
