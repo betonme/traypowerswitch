@@ -11,9 +11,9 @@
 ;
 ; Copyright Frank Glaser 2009
 ;
-; Version:           1.04
+; Version:           1.05
 ; Last author:       Frank Glaser
-; Last changed date: 01.06.2009
+; Last changed date: 03.06.2009
 ; 
 ; AutoIt Version:    3.3.0.0
 ; SciTE4AutoIt3:     21.05.2009
@@ -29,164 +29,152 @@
 #include <Timers.au3>
 
 Dim Const $program_name = "TrayPowerSwitch"
-Dim Const $version_num  = "1.04"
-Dim Const $version_date = "2009-06-01"
+Dim Const $version_num  = "1.05"
+Dim Const $version_date = "2009-06-03"
 Dim Const $copyright    = "(c) 2009 Frank Glaser"
 
-# There are default 4 icons in EXE so your first icon must have (negative 1-based) index -5:
+;There are default 4 icons in EXE so your first icon must have (negative 1-based) index -5:
 Dim Const $ico_on  = -5
 Dim Const $ico_off = -6
 Dim Const $ico_rel = -7
 Dim Const $ico_err = -8
 
-
-###################################
-#### Ini File
 Dim Const $ini_file = @Workingdir & "\TrayPowerSwitch.ini"
 Dim Const $max_par = 19
 
-If FileExists($ini_file) Then
-    ;File Exist do nothing
-Else
-    ;File does not exist
-	MsgBox(4096, "TrayPowerSwitch", "Unable to open ini file")
-    Exit
-EndIf
-
-$load_profile = IniRead($ini_file, "General", "load_profile", "Default")
-
-$read_profile = IniReadSection($ini_file, $load_profile)
-If UBound($read_profile) < ($max_par+1) Then
-	MsgBox(4096, "TrayPowerSwitch", UBound($read_profile) )
-    Exit
-EndIf
-
-$name 			= String (IniRead($ini_file, $load_profile, "name", ""))
-$exec 			= String (IniRead($ini_file, $load_profile, "exec", ""))
-$address 		= String (IniRead($ini_file, $load_profile, "address", ""))
-$outlet 		= Int    (IniRead($ini_file, $load_profile, "outlet", ""))
-$user 			= String (IniRead($ini_file, $load_profile, "user", ""))
-$password 		= String (IniRead($ini_file, $load_profile, "password", ""))
-$state 			=        (IniRead($ini_file, $load_profile, "state", ""))
-$err_str 		= String (IniRead($ini_file, $load_profile, "err_str", ""))
-$timeout 		= Int    (IniRead($ini_file, $load_profile, "timeout", ""))
-$updatetime 	= Int    (IniRead($ini_file, $load_profile, "updatetime", ""))
-$autotoggle 	=        (IniRead($ini_file, $load_profile, "autotoggle", ""))
-$toggletime 	= Int    (IniRead($ini_file, $load_profile, "toggletime", ""))
-$autoupdate 	=        (IniRead($ini_file, $load_profile, "autoupdate", ""))
-$autupd_time 	= Int    (IniRead($ini_file, $load_profile, "autupd_time", ""))
-$state_str_on 	= String (IniRead($ini_file, $load_profile, "state_str_on", ""))
-$state_str_off	= String (IniRead($ini_file, $load_profile, "state_str_off", ""))
-$get_state 		= String (IniRead($ini_file, $load_profile, "get_state", ""))
-$set_state_on 	= String (IniRead($ini_file, $load_profile, "set_state_on", ""))
-$set_state_off 	= String (IniRead($ini_file, $load_profile, "set_state_off", ""))
+Dim $name, $exec, $address, $outlet, $user, $password, $state, $err_str, $timeout, $updatetime, $autotoggle, $toggletime, $autoupdate, $autupd_time, $state_str_on, $state_str_off, $get_state, $set_state_on, $set_state_off
 
 
 ###################################
-#### GUI
-# Add Tray Items
-TraySetIcon(@ScriptFullPath, $ico_rel)
+#### Parse Commandline Parameter
+Dim $profile
 
-Opt("TrayMenuMode",1)   ; Default tray menu items (Script Paused/Exit) will not be shown.
-
-$autotoggleItem    = TrayCreateItem("Toggle")
-If $autotoggle = True Then TrayItemSetState($autotoggleItem, $TRAY_CHECKED)
-TrayCreateItem("")
-$fixStatusItem     = TrayCreateItem("Update")
-$autoStatusItem    = TrayCreateItem("Auto-Update")
-If $autotoggle = True Then TrayItemSetState($autoStatusItem, $TRAY_CHECKED)
-$showStatusItem    = TrayCreateItem("Show Response")
-TrayCreateItem("")
-$aboutItem         = TrayCreateItem("About")
-TrayCreateItem("")
-$exititem          = TrayCreateItem("Exit")
+parseCmdPar()
 
 
-TraySetState()		; Sets the state of the tray icon.
+###################################
+#### Ini File
+Dim $config_profiles
 
-TraySetClick(8) 	; Sets the clickmode of the tray icon - what mouseclicks will display the tray menu.
-					; Pressing secondary mouse button.
+readConfig()
 
-# Get Outlet Status
-setIcon()
+
+###################################
+#### GUI: Tray Items
+Dim $configItem[UBound($config_profiles)]
+Dim $autotoggleItem
+Dim $fixStatusItem
+Dim $autoStatusItem
+Dim $showStatusItem
+Dim $aboutItem
+Dim $exititem
+
+setLoadIcon()
+createTrayApp()
+
+
+###################################
+#### Configuration
+loadProfile($profile)	; Load profile parameter
+setIcon()				; Set Icon according to outlet status
 
 
 ###################################
 #### Message Loop
-Dim $timerbegin = 0
-Dim $timerdiff  = 0
-
-While 1
-    $trayevent = TrayGetMsg()
-
-	# auto update state handling
-	# has to be done before event handling else it will not update icon if app is out of focus
-	If $autoupdate = True Then
-		$timerdiff = TimerDiff($timerbegin)
-		if ($timerdiff > $autupd_time) Then
-			setIcon()
-			$timerbegin = TimerInit()
-		EndIf
-	EndIf
-
-    Select
-        Case $trayevent = 0
-            ContinueLoop
-
-		Case $trayevent = $autotoggleItem
-			$autotoggle = Not $autotoggle
-			If $autotoggle = True Then
-				TrayItemSetState($autotoggleItem, $TRAY_CHECKED)
-				setIcon()
-				$timerbegin = TimerInit()
-			Else
-				TrayItemSetState($autotoggleItem, $TRAY_UNCHECKED)
-				setIcon()
-			EndIf
-
-		Case $trayevent = $fixStatusItem
-            setIcon()
-        Case $trayevent = $autoStatusItem
-			$autoupdate = Not $autoupdate
-			If $autoupdate = True Then
-				TrayItemSetState($autoStatusItem, $TRAY_CHECKED)
-				setIcon()
-			Else
-				TrayItemSetState($autoStatusItem, $TRAY_UNCHECKED)
-				setIcon()
-			EndIf
-		Case $trayevent = $showStatusItem
-            showStatusString()
-
-        Case $trayevent = $aboutItem
-            showVersion()
-
-        Case $trayevent = $exititem
-            ExitLoop
-
-		Case $trayevent = $TRAY_EVENT_PRIMARYDOWN
-			If $autotoggle = True Then
-				switchOutlet(False)
-				Sleep($toggletime)
-				switchOutlet(True)
-			Else
-				switchOutlet(Not $state)
-			EndIf
-	EndSelect
-
-WEnd
+main()
 
 Exit
 
 
 ###################################
 #### Functions
-Func switchOutlet($nextstate)
+Func main ()
+	Local $timerbegin = 0
+	Local $timerdiff  = 0
 
-	TraySetIcon(@ScriptFullPath, $ico_rel)
+	While 1
+		$trayevent = TrayGetMsg()
 
+		; auto update state handling
+		; has to be done before event handling else it will not update icon if app is out of focus
+		If $autoupdate = True Then
+			$timerdiff = TimerDiff($timerbegin)
+			if ($timerdiff > $autupd_time) Then
+				setIcon()
+				$timerbegin = TimerInit()
+			EndIf
+		EndIf
+
+		; load profile handling
+		$i = _ArraySearch($configItem, $trayevent)
+		If 0 <= $i Then
+			$profile = $config_profiles[$i]
+			setLoadIcon()
+			loadProfile ($profile)
+			setIcon()
+			ContinueLoop
+		EndIf
+
+		Select
+			Case $trayevent = 0
+				ContinueLoop
+
+			Case $trayevent = $autotoggleItem
+				$autotoggle = Not $autotoggle
+				If $autotoggle = True Then
+					TrayItemSetState($autotoggleItem, $TRAY_CHECKED)
+					setIcon()
+					$timerbegin = TimerInit()
+				Else
+					TrayItemSetState($autotoggleItem, $TRAY_UNCHECKED)
+					setIcon()
+				EndIf
+
+			Case $trayevent = $fixStatusItem
+				setLoadIcon()
+				setIcon()
+			Case $trayevent = $autoStatusItem
+				$autoupdate = Not $autoupdate
+				If $autoupdate = True Then
+					TrayItemSetState($autoStatusItem, $TRAY_CHECKED)
+					setIcon()
+				Else
+					TrayItemSetState($autoStatusItem, $TRAY_UNCHECKED)
+					setIcon()
+				EndIf
+			Case $trayevent = $showStatusItem
+				setLoadIcon()
+				showStatusString()
+				setIcon()
+
+			Case $trayevent = $aboutItem
+				showVersion()
+
+			Case $trayevent = $exititem
+				ExitLoop
+
+			Case $trayevent = $TRAY_EVENT_PRIMARYDOWN
+				If $autotoggle = True Then
+					setLoadIcon()
+					switchOutlet(False)
+					setIcon()
+					Sleep($toggletime)
+					setLoadIcon()
+					switchOutlet(True)
+					setIcon()
+				Else
+					setLoadIcon()
+					switchOutlet(Not $state)
+					setIcon()
+				EndIf
+		EndSelect
+
+	WEnd
+EndFunc
+
+
+Func switchOutlet ($nextstate)
 	$state = $nextstate
-	;$pid = Run(@ComSpec & " /c " & $set_state & StringFormat("%d",$state), "", @SW_HIDE, $STDERR_MERGED)
 	If $state = True Then
 		$pid = Run(@ComSpec & " /c " & $set_state_on, "", @SW_HIDE, $STDERR_MERGED)
 	Else
@@ -195,12 +183,13 @@ Func switchOutlet($nextstate)
 	ProcessWaitClose ($pid)
 
 	While 1
+		; read from StdOut
 		$line = StdoutRead($pid)
 
-		# Check Errors
+		; Check Errors
 		If @error Then ExitLoop
 
-		# Check StdOut
+		; Check StdOut
 		If StringInStr ( $line, StringFormat ("Der Befehl ""%s"" ist entweder falsch geschrieben oder\r\nkonnte nicht gefunden werden", $exec) ) <> 0 Then $err = True
 		If StringInStr ( $line, $err_str ) <> 0 Then
 			TraySetIcon(@ScriptFullPath, $ico_err)
@@ -209,33 +198,38 @@ Func switchOutlet($nextstate)
 		EndIf
 	Wend
 
-	# Sleep to get the correct state
+	; Sleep to get the correct state
 	Sleep($updatetime)
-
-	# Update Tray Icon
-	setIcon()
 EndFunc
 
-Func setIcon()
-    Local   $err = False
+
+Func setLoadIcon ()
+	TraySetIcon(@ScriptFullPath, $ico_rel)
+EndFunc
+
+
+Func setIcon ()
+	Local $pid, $line
+	Local   $err = False
+
 	$state = False
 
-	# Get Outlet Status
+	; Get Outlet Status
 	$pid = Run(@ComSpec & " /c " & $get_state, "", @SW_HIDE, $STDERR_MERGED)
 	ProcessWaitClose ($pid)
 
 	While 1
-		# read from StdOut
+		; read from StdOut
 		$line = StdoutRead($pid)
 
-		# Check Errors
+		; Check Errors
 		If @error Then ExitLoop
 
-		# Check StdOut
+		; Check StdOut
 		If StringInStr ( $line, StringFormat ("Der Befehl ""%s"" ist entweder falsch geschrieben oder\r\nkonnte nicht gefunden werden", $exec) ) <> 0 Then $err = True
 		If StringInStr ( $line, $err_str ) <> 0 Then $err = True
 
-		# Check Status
+		; Check Status
 		If StringInStr ( $line, $state_str_on ) <> 0 Then
 			$state = True
 		ElseIf StringInStr ( $line, $state_str_off ) <> 0 Then
@@ -243,7 +237,7 @@ Func setIcon()
 		EndIf
 	Wend
 
-	# Status Handling
+	; Status Handling
 	If $state = True Then
 		TraySetToolTip(StringFormat ("%s %d ON", $name, $outlet))
 		TraySetIcon(@ScriptFullPath, $ico_on)
@@ -252,7 +246,7 @@ Func setIcon()
 		TraySetIcon(@ScriptFullPath, $ico_off)
 	EndIf
 
-	# $error Handling
+	; Error Handling
 	If $err = True Then
 		TraySetIcon(@ScriptFullPath, $ico_err)
 		TraySetToolTip("No Response")
@@ -260,10 +254,11 @@ Func setIcon()
 	Endif
 EndFunc
 
+
 Func showStatusString ()
     Local $pid, $line, $response = ""
 
-    # Get Infratec Status
+	; Get Outlet Status
 	$pid = Run(@ComSpec & " /c " & $get_state, "", @SW_HIDE, $STDERR_MERGED)
 	ProcessWaitClose ($pid)
 
@@ -279,13 +274,128 @@ Func showStatusString ()
         $response = $response & $line
     WEnd
 
-	setIcon()
 	MsgBox(4096, "Status report", $response)
-
 EndFunc
+
 
 Func showVersion ()
     Local   $text
     $text = StringFormat($program_name & "V" & $version_num & "\nBuilt " & $version_date & "\n" & $copyright)
     MsgBox(4096, $program_name & " V" & $version_num, $text)
+EndFunc
+
+
+Func loadProfile ($profile)
+	$name 			= String (IniRead($ini_file, $profile, "name", ""))
+	$exec 			= String (IniRead($ini_file, $profile, "exec", ""))
+	$address 		= String (IniRead($ini_file, $profile, "address", ""))
+	$outlet 		= Int    (IniRead($ini_file, $profile, "outlet", ""))
+	$user 			= String (IniRead($ini_file, $profile, "user", ""))
+	$password 		= String (IniRead($ini_file, $profile, "password", ""))
+	$state 			=        (IniRead($ini_file, $profile, "state", ""))
+	$err_str 		= String (IniRead($ini_file, $profile, "err_str", ""))
+	$timeout 		= Int    (IniRead($ini_file, $profile, "timeout", ""))
+	$updatetime 	= Int    (IniRead($ini_file, $profile, "updatetime", ""))
+	$autotoggle 	=        (IniRead($ini_file, $profile, "autotoggle", ""))
+	$toggletime 	= Int    (IniRead($ini_file, $profile, "toggletime", ""))
+	$autoupdate 	=        (IniRead($ini_file, $profile, "autoupdate", ""))
+	$autupd_time 	= Int    (IniRead($ini_file, $profile, "autupd_time", ""))
+	$state_str_on 	= String (IniRead($ini_file, $profile, "state_str_on", ""))
+	$state_str_off	= String (IniRead($ini_file, $profile, "state_str_off", ""))
+	$get_state 		= String (IniRead($ini_file, $profile, "get_state", ""))
+	$set_state_on 	= String (IniRead($ini_file, $profile, "set_state_on", ""))
+	$set_state_off 	= String (IniRead($ini_file, $profile, "set_state_off", ""))
+
+	$i = _ArraySearch($config_profiles, $profile)
+	If 0 <= $i Then
+		FOR $element IN $configItem
+			If $element = $configItem[$i] Then
+				TrayItemSetState($element, $TRAY_CHECKED)
+			Else
+				TrayItemSetState($element, $TRAY_UNCHECKED)
+			EndIf
+		NEXT
+	EndIf
+EndFunc
+
+
+Func parseCmdPar ()
+	If $CmdLine[0] > 0 Then
+		Local $CmdParam = $CmdLine
+		_ArrayDelete($CmdParam, 0)
+		FOR $element IN $CmdParam
+			Local $el = StringLeft ($element,2)
+			Select
+				Case $el = "-p"
+					; Commandline Parameter load_profil overwrites ini file load_profile parameter
+					$profile = StringTrimLeft($element,3)
+				Case $el = "-?"
+					MsgBox(4096, 'Help', "Parameter: " & @LF _
+									& "-p=" & @TAB & "load profile" )
+					Exit
+				Case Else
+					MsgBox(4096, '', StringFormat ("Unknown Parameter: %s", $element) & @LF _
+									& "-? for help")
+					Exit
+			EndSelect
+		NEXT
+	Else
+		;No Commandline Parameter do nothing
+	EndIf
+EndFunc
+
+
+Func readConfig ()
+	If FileExists($ini_file) Then
+		;File Exist do nothing
+	Else
+		;File does not exist
+		MsgBox(4096, "TrayPowerSwitch", "Unable to open ini file")
+		Exit
+	EndIf
+
+	$config_profiles = IniReadSectionNames ($ini_file)
+	If @error Then
+		MsgBox(4096, "TrayPowerSwitch", "Error occurred, probably no INI file")
+		Exit
+	Else
+		_ArrayDelete($config_profiles, 0)
+		_ArrayDelete($config_profiles, 0)
+	EndIf
+
+	If $profile = '' Then
+		$profile = IniRead($ini_file, "General", "load_profile", "Default")
+	EndIf
+
+	Local $read_profile = IniReadSection($ini_file, $profile)
+	If UBound($read_profile) < ($max_par+1) Then
+		MsgBox(4096, "TrayPowerSwitch", "Profile incomplete or missing" )
+		Exit
+	EndIf
+EndFunc
+
+
+Func createTrayApp ()
+	Opt("TrayMenuMode",1)   ; Default tray menu items (Script Paused/Exit) will not be shown.
+
+	FOR $element IN $config_profiles
+		_ArrayPush($configItem, TrayCreateItem($element))
+	NEXT
+	TrayCreateItem("")
+	$autotoggleItem    = TrayCreateItem("Toggle")
+	If $autotoggle = True Then TrayItemSetState($autotoggleItem, $TRAY_CHECKED)
+	TrayCreateItem("")
+	$fixStatusItem     = TrayCreateItem("Update")
+	$autoStatusItem    = TrayCreateItem("Auto-Update")
+	If $autotoggle = True Then TrayItemSetState($autoStatusItem, $TRAY_CHECKED)
+	$showStatusItem    = TrayCreateItem("Show Response")
+	TrayCreateItem("")
+	$aboutItem         = TrayCreateItem("About")
+	TrayCreateItem("")
+	$exititem          = TrayCreateItem("Exit")
+
+	TraySetState()		; Sets the state of the tray icon.
+
+	TraySetClick(8) 	; Sets the clickmode of the tray icon - what mouseclicks will display the tray menu.
+						; Pressing secondary mouse button.
 EndFunc
