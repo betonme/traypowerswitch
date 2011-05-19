@@ -6,18 +6,19 @@
 #AutoIt3Wrapper_Res_Icon_Add=button_off.ico
 #AutoIt3Wrapper_Res_Icon_Add=button_reload.ico
 #AutoIt3Wrapper_Res_Icon_Add=button_error.ico
+#AutoIt3Wrapper_Run_After=copy "*.ini" "bin\*.ini"
 #EndRegion ;**** Directives created by AutoIt3Wrapper_GUI ****
 
 ; ----------------------------------------------------------------------------
 ;
-; Copyright Frank Glaser 2010
+; Copyright Frank Glaser 2011
 ;
-; Version:           1.08
+; Version:           1.09
 ; Last author:       Frank Glaser
-; Last changed date: 13.01.2010
+; Last changed date: 19.05.2011
 ;
 ; AutoIt Version:    3.3.6.1
-; SciTE4AutoIt3:     21.05.2009
+; SciTE4AutoIt3:     28.02.2010
 ;
 ; Script Function:
 ;   Control Your Power Outlets from Windows Tray.
@@ -32,9 +33,9 @@
 
 ; Program Version Information
 Dim Const $program_name = "TrayPowerSwitch"
-Dim Const $version_num = "1.08"
-Dim Const $version_date = "2010-01-13"
-Dim Const $copyright = "(c) 2010 Frank Glaser"
+Dim Const $version_num = "1.09"
+Dim Const $version_date = "2011-05-19"
+Dim Const $copyright = "(c) 2011 Frank Glaser"
 
 ; There are default 4 icons in EXE so your first icon must have (negative 1-based) index -5:
 Dim Const $ico_on = -5
