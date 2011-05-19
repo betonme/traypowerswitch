@@ -1,0 +1,14 @@
+#summary List of Links, which are useful to develop the app
+#labels Phase-Implementation
+
+= Google API =
+ * ab
+
+= Libraries =
+ * ab
+
+= Tutorials =
+ * ab
+
+= Forum Links =
+ * ab
