@@ -1,6 +1,7 @@
 #Region ;**** Directives created by AutoIt3Wrapper_GUI ****
 #AutoIt3Wrapper_icon=TrayPowerSwitch.ico
 #AutoIt3Wrapper_outfile=bin\TrayPowerSwitch.exe
+#AutoIt3Wrapper_Compression=0
 #AutoIt3Wrapper_Res_Icon_Add=button_on.ico
 #AutoIt3Wrapper_Res_Icon_Add=button_off.ico
 #AutoIt3Wrapper_Res_Icon_Add=button_reload.ico
@@ -11,9 +12,9 @@
 ;
 ; Copyright Frank Glaser 2009
 ;
-; Version:           1.05
+; Version:           1.06
 ; Last author:       Frank Glaser
-; Last changed date: 03.06.2009
+; Last changed date: 17.06.2009
 ; 
 ; AutoIt Version:    3.3.0.0
 ; SciTE4AutoIt3:     21.05.2009
@@ -28,21 +29,26 @@
 #Include <Constants.au3>
 #include <Timers.au3>
 
+; Program Version Information
 Dim Const $program_name = "TrayPowerSwitch"
-Dim Const $version_num  = "1.05"
-Dim Const $version_date = "2009-06-03"
+Dim Const $version_num  = "1.06"
+Dim Const $version_date = "2009-06-17"
 Dim Const $copyright    = "(c) 2009 Frank Glaser"
 
-;There are default 4 icons in EXE so your first icon must have (negative 1-based) index -5:
+; There are default 4 icons in EXE so your first icon must have (negative 1-based) index -5:
 Dim Const $ico_on  = -5
 Dim Const $ico_off = -6
 Dim Const $ico_rel = -7
 Dim Const $ico_err = -8
 
-Dim Const $ini_file = @Workingdir & "\TrayPowerSwitch.ini"
-Dim Const $max_par = 19
+; Outlet state
+Dim $state = 0
 
-Dim $name, $exec, $address, $outlet, $user, $password, $state, $err_str, $timeout, $updatetime, $autotoggle, $toggletime, $autoupdate, $autupd_time, $state_str_on, $state_str_off, $get_state, $set_state_on, $set_state_off
+; Config variables
+Dim Const $ini_file = @Workingdir & "\TrayPowerSwitch.ini"
+Dim Const $max_par = 14
+Dim $name, $exec, $outlet, $err_str, $updatetime, $autotoggle, $toggletime, $autoupdate, $autupd_time, $state_str_on, $state_str_off, $get_state, $set_state_on, $set_state_off
+
 
 
 ###################################
@@ -112,6 +118,7 @@ Func main ()
 			setLoadIcon()
 			loadProfile ($profile)
 			setIcon()
+			saveConfig()
 			ContinueLoop
 		EndIf
 
@@ -285,40 +292,6 @@ Func showVersion ()
 EndFunc
 
 
-Func loadProfile ($profile)
-	$name 			= String (IniRead($ini_file, $profile, "name", ""))
-	$exec 			= String (IniRead($ini_file, $profile, "exec", ""))
-	$address 		= String (IniRead($ini_file, $profile, "address", ""))
-	$outlet 		= Int    (IniRead($ini_file, $profile, "outlet", ""))
-	$user 			= String (IniRead($ini_file, $profile, "user", ""))
-	$password 		= String (IniRead($ini_file, $profile, "password", ""))
-	$state 			=        (IniRead($ini_file, $profile, "state", ""))
-	$err_str 		= String (IniRead($ini_file, $profile, "err_str", ""))
-	$timeout 		= Int    (IniRead($ini_file, $profile, "timeout", ""))
-	$updatetime 	= Int    (IniRead($ini_file, $profile, "updatetime", ""))
-	$autotoggle 	=        (IniRead($ini_file, $profile, "autotoggle", ""))
-	$toggletime 	= Int    (IniRead($ini_file, $profile, "toggletime", ""))
-	$autoupdate 	=        (IniRead($ini_file, $profile, "autoupdate", ""))
-	$autupd_time 	= Int    (IniRead($ini_file, $profile, "autupd_time", ""))
-	$state_str_on 	= String (IniRead($ini_file, $profile, "state_str_on", ""))
-	$state_str_off	= String (IniRead($ini_file, $profile, "state_str_off", ""))
-	$get_state 		= String (IniRead($ini_file, $profile, "get_state", ""))
-	$set_state_on 	= String (IniRead($ini_file, $profile, "set_state_on", ""))
-	$set_state_off 	= String (IniRead($ini_file, $profile, "set_state_off", ""))
-
-	$i = _ArraySearch($config_profiles, $profile)
-	If 0 <= $i Then
-		FOR $element IN $configItem
-			If $element = $configItem[$i] Then
-				TrayItemSetState($element, $TRAY_CHECKED)
-			Else
-				TrayItemSetState($element, $TRAY_UNCHECKED)
-			EndIf
-		NEXT
-	EndIf
-EndFunc
-
-
 Func parseCmdPar ()
 	If $CmdLine[0] > 0 Then
 		Local $CmdParam = $CmdLine
@@ -371,6 +344,40 @@ Func readConfig ()
 	If UBound($read_profile) < ($max_par+1) Then
 		MsgBox(4096, "TrayPowerSwitch", "Profile incomplete or missing" )
 		Exit
+	EndIf
+EndFunc
+
+
+Func saveConfig ()
+	IniWrite($ini_file, "General", "load_profile", $profile)
+EndFunc
+
+
+Func loadProfile ($profile)
+	$name 			= String (IniRead($ini_file, $profile, "name", ""))
+	$exec 			= String (IniRead($ini_file, $profile, "exec", ""))
+	$outlet 		= Int    (IniRead($ini_file, $profile, "outlet", ""))
+	$err_str 		= String (IniRead($ini_file, $profile, "err_str", ""))
+	$updatetime 	= Int    (IniRead($ini_file, $profile, "updatetime", ""))
+	$autotoggle 	=        (IniRead($ini_file, $profile, "autotoggle", ""))
+	$toggletime 	= Int    (IniRead($ini_file, $profile, "toggletime", ""))
+	$autoupdate 	=        (IniRead($ini_file, $profile, "autoupdate", ""))
+	$autupd_time 	= Int    (IniRead($ini_file, $profile, "autupd_time", ""))
+	$state_str_on 	= String (IniRead($ini_file, $profile, "state_str_on", ""))
+	$state_str_off	= String (IniRead($ini_file, $profile, "state_str_off", ""))
+	$get_state 		= String (IniRead($ini_file, $profile, "get_state", ""))
+	$set_state_on 	= String (IniRead($ini_file, $profile, "set_state_on", ""))
+	$set_state_off 	= String (IniRead($ini_file, $profile, "set_state_off", ""))
+
+	$i = _ArraySearch($config_profiles, $profile)
+	If 0 <= $i Then
+		FOR $element IN $configItem
+			If $element = $configItem[$i] Then
+				TrayItemSetState($element, $TRAY_CHECKED)
+			Else
+				TrayItemSetState($element, $TRAY_UNCHECKED)
+			EndIf
+		NEXT
 	EndIf
 EndFunc
 
